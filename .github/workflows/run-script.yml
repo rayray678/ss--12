@@ -1,0 +1,44 @@
+name: Daily SS Node Generator
+
+on:
+  schedule:
+    - cron: '0 16 * * *'  # UTC时间16:00，即中国时间0点
+  workflow_dispatch:      # 允许手动触发
+
+jobs:
+  generate-ss:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write      # 明确赋予写权限以便推送更改
+    steps:
+      # 签出仓库代码
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}  # 使用默认token签出
+      
+      # 设置Python环境
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      
+      # 安装依赖
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests pyaes
+      
+      # 运行Python脚本并将输出重定向到ss.txt
+      - name: Run script and generate ss.txt
+        run: |
+          python dist/main.py > ss.txt
+      
+      # 提交生成的ss.txt文件
+      - name: Commit results
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add ss.txt
+          git commit -m "Update ss.txt with latest nodes" || echo "No changes to commit"
+          git push
