@@ -4,6 +4,9 @@ on:
   schedule:
     - cron: '0 16 * * *'  # UTC时间16:00，即中国时间0点
   workflow_dispatch:      # 允许手动触发
+  push:                   # 提交代码时自动运行
+    paths:
+      - '.github/workflows/run-script.yml'  # 只在推送此文件时触发
 
 jobs:
   generate-ss:
@@ -21,7 +24,7 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: '3.x'
       
       # 安装依赖
       - name: Install dependencies
@@ -29,16 +32,40 @@ jobs:
           python -m pip install --upgrade pip
           pip install requests pyaes
       
-      # 运行Python脚本并将输出重定向到ss.txt
+      # 运行Python脚本，只保留ss://开头的内容并写入ss.txt
       - name: Run script and generate ss.txt
         run: |
-          python dist/main.py > ss.txt
+          python dist/main.py | grep "^ss://" > ss.txt
       
-      # 提交生成的ss.txt文件
+      # 计算行数并获取北京时间，提交生成的ss.txt
       - name: Commit results
         run: |
+          # 计算ss.txt行数
+          LINE_COUNT=$(wc -l < ss.txt)
+          # 获取北京时间 (UTC+8)
+          BEIJING_TIME=$(date -u -d '+8 hours' '+%Y-%m-%d %H:%M:%S')
+          # 设置提交消息
+          COMMIT_MESSAGE="更新${LINE_COUNT}个节点 (${BEIJING_TIME})"
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
           git add ss.txt
-          git commit -m "Update ss.txt with latest nodes" || echo "No changes to commit"
+          git commit -m "$COMMIT_MESSAGE" || echo "No changes to commit"
           git push
+      
+      # 发送Telegram通知
+      - name: Send Telegram Notification
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          # 获取北京时间
+          BEIJING_TIME=$(date -u -d '+8 hours' '+%Y-%m-%d %H:%M:%S')
+          # 读取ss.txt内容
+          SS_CONTENT=$(cat ss.txt)
+          # 构建Telegram消息
+          MESSAGE="✨ 节点更新报告 ✨%0A📡 系统时间: ${BEIJING_TIME}%0A%60%60%60%0A${SS_CONTENT}%0A%60%60%60"
+          # 发送消息到Telegram
+          curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            -d chat_id="${TELEGRAM_CHAT_ID}" \
+            -d text="${MESSAGE}" \
+            -d parse_mode="Markdown"
